@@ -16,5 +16,9 @@
     "url": "https://github.com/Rashi-Bhojwani/Chatify/issues"
   },
   "homepage": "https://github.com/Rashi-Bhojwani/Chatify#readme",
-  "description": ""
+  "description": "",
+  "dependencies": {
+    "@arcjet/inspect": "^1.0.0-beta.10",
+    "@arcjet/node": "^1.0.0-beta.10"
+  }
 }
