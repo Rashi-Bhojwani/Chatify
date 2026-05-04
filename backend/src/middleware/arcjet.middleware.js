@@ -3,7 +3,7 @@ import { isSpoofedBot } from "@arcjet/inspect";
 
 export const arcjetProtection = async (req, res, next) => {
   try {
-    const decision = await aj.protect(req);
+    // const decision = await aj.protect(req);
 
     if (decision.isDenied()) {
       if (decision.reason.isRateLimit()) {
@@ -17,7 +17,7 @@ export const arcjetProtection = async (req, res, next) => {
       }
     }
 
-    // check for spoofed bots
+    // check for spoofed bots owq
     if (decision.results.some(isSpoofedBot)) {
       return res.status(403).json({
         error: "Spoofed bot detected",
