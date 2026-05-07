@@ -1,25 +1,10 @@
 {
-  "name": "chatify",
-  "version": "1.0.0",
-  "main": "index.js",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Rashi-Bhojwani/Chatify.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/Rashi-Bhojwani/Chatify/issues"
-  },
-  "homepage": "https://github.com/Rashi-Bhojwani/Chatify#readme",
-  "description": "",
-  "dependencies": {
-    "@arcjet/inspect": "^1.0.0-beta.10",
-    "@arcjet/node": "^1.0.0-beta.10",
-    "zustand": "^5.0.3"
+    "client": "cd frontend/react && npm run dev",
+    "server": "cd backend && npm run dev",
+    "dev": "concurrently \"npm run server\" \"npm run client\""
   }
 }
