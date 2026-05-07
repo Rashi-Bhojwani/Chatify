@@ -14,7 +14,7 @@ const PORT = ENV.PORT || 3000;
 
 app.use(express.json())
 app.use(cors({origin:ENV.CLIENT_URL, credentials:true}));
-app.use(cookieParser());frontend/public/login.png
+app.use(cookieParser());
 
 app.use("/api/auth" , authRouters);
 app.use("/api/messages" , messageRouters);
