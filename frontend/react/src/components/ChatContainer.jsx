@@ -1,99 +1,81 @@
-import { useState, useRef } from "react";
-import { LogOutIcon, VolumeOffIcon, Volume2Icon } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
+import ChatHeader from "./ChatHeader";
+import NoChatHistoryPlaceholder from "./NoChatHistoryPlaceholder";
+import MessageInput from "./MessageInput";
+import MessagesLoadingSkeleton from "./MessagesLoadingSkeleton";
 
-const mouseClickSound = new Audio("/sounds/mouse-click.mp3");
+function ChatContainer() {
+  const {
+    selectedUser,
+    getMessagesByUserId,
+    messages,
+    isMessagesLoading,
+    // subscribeToMessages,
+    // unsubscribeFromMessages,
+  } = useChatStore();
+  const { authUser } = useAuthStore();
+  const messageEndRef = useRef(null);
 
-function ProfileHeader() {
-  const { logout, authUser, updateProfile } = useAuthStore();
-  const { isSoundEnabled, toggleSound } = useChatStore();
-  const [selectedImg, setSelectedImg] = useState(null);
+  useEffect(() => {
+    getMessagesByUserId(selectedUser._id);
+  }, [selectedUser , getMessagesByUserId]);
 
-  const fileInputRef = useRef(null);
+  //   // clean up
+  //   return () => unsubscribeFromMessages();
+  // }, [selectedUser, getMessagesByUserId, subscribeToMessages, unsubscribeFromMessages]);
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-
-    reader.onloadend = async () => {
-      const base64Image = reader.result;
-      setSelectedImg(base64Image);
-      await updateProfile({ profilePic: base64Image });
-    };
-  };
+  useEffect(() => {
+    if (messageEndRef.current) {
+      messageEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
 
   return (
-    <div className="p-6 border-b border-slate-700/50">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {/* AVATAR */}
-          <div className="avatar online">
-            <button
-              className="size-14 rounded-full overflow-hidden relative group"
-              onClick={() => fileInputRef.current.click()}
-            >
-              <img
-                src={selectedImg || authUser.profilePic || "/avatar.png"}
-                alt="User image"
-                className="size-full object-cover"
-              />
-              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                <span className="text-white text-xs">Change</span>
+    <>
+      <ChatHeader />
+      <div className="flex-1 px-6 overflow-y-auto py-8">
+        {messages.length > 0 && !isMessagesLoading ? (
+          <div className="max-w-3xl mx-auto space-y-6">
+            {messages.map((msg) => (
+              <div
+                key={msg._id}
+                className={`chat ${msg.senderId === authUser._id ? "chat-end" : "chat-start"}`}
+              >
+                <div
+                  className={`chat-bubble relative ${
+                    msg.senderId === authUser._id
+                      ? "bg-cyan-600 text-white"
+                      : "bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  {msg.image && (
+                    <img src={msg.image} alt="Shared" className="rounded-lg h-48 object-cover" />
+                  )}
+                  {msg.text && <p className="mt-2">{msg.text}</p>}
+                  <p className="text-xs mt-1 opacity-75 flex items-center gap-1">
+                    {new Date(msg.createdAt).toLocaleTimeString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
               </div>
-            </button>
-
-            <input
-              type="file"
-              accept="image/*"
-              ref={fileInputRef}
-              onChange={handleImageUpload}
-              className="hidden"
-            />
+            ))}
+            {/* 👇 scroll target */}
+            <div ref={messageEndRef} />
           </div>
-
-          {/* USERNAME & ONLINE TEXT */}
-          <div>
-            <h3 className="text-slate-200 font-medium text-base max-w-[180px] truncate">
-              {authUser.fullName}
-            </h3>
-
-            <p className="text-slate-400 text-xs">Online</p>
-          </div>
-        </div>
-
-        {/* BUTTONS */}
-        <div className="flex gap-4 items-center">
-          {/* LOGOUT BTN */}
-          <button
-            className="text-slate-400 hover:text-slate-200 transition-colors"
-            onClick={logout}
-          >
-            <LogOutIcon className="size-5" />
-          </button>
-
-          {/* SOUND TOGGLE BTN */}
-          <button
-            className="text-slate-400 hover:text-slate-200 transition-colors"
-            onClick={() => {
-              // play click sound before toggling
-              mouseClickSound.currentTime = 0; // reset to start
-              mouseClickSound.play().catch((error) => console.log("Audio play failed:", error));
-              toggleSound();
-            }}
-          >
-            {isSoundEnabled ? (
-              <Volume2Icon className="size-5" />
-            ) : (
-              <VolumeOffIcon className="size-5" />
-            )}
-          </button>
-        </div>
+        ) : isMessagesLoading ? (
+          <MessagesLoadingSkeleton />
+        ) : (
+          <NoChatHistoryPlaceholder name={selectedUser.fullName} />
+        )}
       </div>
-    </div>
+
+      <MessageInput />
+    </>
   );
 }
-export default ProfileHeader;
+
+export default ChatContainer;
