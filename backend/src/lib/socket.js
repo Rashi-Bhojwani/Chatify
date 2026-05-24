@@ -7,12 +7,15 @@ import { socketAuthMiddleware } from "../middleware/socket.auth.middleware.js";
 const app = express();
 const server = http.createServer(app);
 
+
 const io = new Server(server, {
   cors: {
-    origin: [ENV.CLIENT_URL],
-    credentials: true,
-  },
+    origin: ["http://chatify-frontend.s3-website.ap-south-1.amazonaws.com" ,"http://localhost:5173",
+    methods: ["GET", "POST"],
+    credentials: true
+  }
 });
+
 
 // apply authentication middleware to all socket connections
 io.use(socketAuthMiddleware);

@@ -2,8 +2,7 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
-
-const BASE_URL = import.meta.env.MODE === "development" ? "http://localhost:3000" : "https://chatify-backend-e7u6.onrender.com";
+const BASE_URL = import.meta.env.MODE === "development" ? "http://localhost:3000" : "http://51.21.161.220:3000/api";
 
 export const useAuthStore = create((set, get) => ({
   authUser: null,
@@ -42,29 +41,31 @@ export const useAuthStore = create((set, get) => ({
   },
 
   login: async (data) => {
-  set({ isLoggingIn: true });
+    set({ isLoggingIn: true });
 
-  try {
-    const res = await axiosInstance.post("/auth/login", data);
+    try {
+      const res = await axiosInstance.post("/auth/login", data);
 
-    console.log("LOGIN RESPONSE:", res.data);
+      console.log("LOGIN RESPONSE:", res.data);
 
-    set({ authUser: res.data });
+      set({ authUser: res.data });
 
-    toast.success("Logged in successfully");
+      localStorage.setItem("token", response.data.token);
 
-    get().connectSocket();
+      toast.success("Logged in successfully");
 
-  } catch (error) {
+      get().connectSocket();
 
-    console.log("LOGIN ERROR:", error);
+    } catch (error) {
 
-    toast.error(error.response.data.message);
+      console.log("LOGIN ERROR:", error);
 
-  } finally {
-    set({ isLoggingIn: false });
-  }
-},
+      toast.error(error.response.data.message);
+
+    } finally {
+      set({ isLoggingIn: false });
+    }
+  },
 
   logout: async () => {
     try {
