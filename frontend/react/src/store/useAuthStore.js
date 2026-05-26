@@ -20,6 +20,7 @@ export const useAuthStore = create((set, get) => ({
       get().connectSocket();
     } catch (error) {
       console.log("Error in authCheck:", error);
+      localStorage.removeItem("chatify_jwt");
       set({ authUser: null });
     } finally {
       set({ isCheckingAuth: false });
@@ -30,7 +31,9 @@ export const useAuthStore = create((set, get) => ({
     set({ isSigningUp: true });
     try {
       const res = await axiosInstance.post("/auth/signup", data);
-      set({ authUser: res.data });
+      const { token, ...user } = res.data;
+      if (token) localStorage.setItem("chatify_jwt", token);
+      set({ authUser: user });
 
       toast.success("Account created successfully!");
       get().connectSocket();
@@ -49,7 +52,9 @@ export const useAuthStore = create((set, get) => ({
 
     console.log("LOGIN RESPONSE:", res.data);
 
-    set({ authUser: res.data });
+    const { token, ...user } = res.data;
+    if (token) localStorage.setItem("chatify_jwt", token);
+    set({ authUser: user });
 
     toast.success("Logged in successfully");
 
@@ -69,6 +74,7 @@ export const useAuthStore = create((set, get) => ({
   logout: async () => {
     try {
       await axiosInstance.post("/auth/logout");
+      localStorage.removeItem("chatify_jwt");
       set({ authUser: null });
       toast.success("Logged out successfully");
       get().disconnectSocket();
