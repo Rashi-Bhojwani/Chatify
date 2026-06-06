@@ -1,121 +1,182 @@
-# Chatify AWS Deployment Steps (Backend + Frontend)
+# Chatify AWS Deployment Guide — No Domain Required, MongoDB Atlas From Start
 
-This guide deploys Chatify from zero on AWS using:
+This guide deploys Chatify on AWS from zero **without a custom domain**. You will use:
 
-- **Amazon EC2** for the Node.js/Express + Socket.IO backend
-- **Amazon S3 + CloudFront** for the Vite React frontend
-- **MongoDB Atlas** for the database
-- Optional **Cloudinary**, **Resend**, and **Arcjet** integrations
+- **MongoDB Atlas** for the cloud database from the beginning.
+- **One AWS EC2 Ubuntu server** for the backend and frontend.
+- **Nginx** on EC2 to serve the React frontend and reverse-proxy backend traffic.
+- **PM2** to keep the Node.js backend running.
 
-> Replace every placeholder like `<your-domain.com>` with your real value.
+You do **not** need Route 53, a domain, HTTPS certificates, S3, or CloudFront for this first deployment.
 
----
-
-## 1. Prerequisites
-
-1. Create or have access to:
-   - An AWS account
-   - A GitHub repository containing this project
-   - A MongoDB Atlas account
-   - Optional Cloudinary, Resend, and Arcjet accounts
-2. Install locally:
-   - Git
-   - Node.js 20 LTS or newer
-   - npm
-   - AWS CLI v2
-3. Pick domains:
-   - Frontend: `https://chat.<your-domain.com>`
-   - Backend API/socket: `https://api.<your-domain.com>`
+> Final app URL format: `http://<ec2-public-dns>` or `http://<ec2-public-ip>`.
 
 ---
 
-## 2. Prepare Production Environment Values
+## 1. What environment variables are actually required?
 
-### 2.1 Backend environment variables
+For the first no-domain AWS deployment, the backend only requires:
 
-Create values based on `backend/.env.example`:
+```bash
+MONGO_URI=mongodb+srv://<atlas-user>:<atlas-password>@<atlas-cluster>/<database>?retryWrites=true&w=majority
+JWT_SECRET=<long-random-secret>
+```
+
+Recommended but optional:
 
 ```bash
 PORT=3000
 NODE_ENV=production
-CLIENT_URL=https://chat.<your-domain.com>
-CLIENT_URLS=https://<cloudfront-domain-name>
-MONGO_URI=mongodb+srv://<username>:<password>@<cluster>/<database>?retryWrites=true&w=majority
-JWT_SECRET=<64-plus-character-random-secret>
-RESEND_API_KEY=<optional-resend-key>
-EMAIL_FROM=<verified-resend-sender>
-EMAIL_FROM_NAME=Chatify
-CLOUDINARY_CLOUD_NAME=<optional-cloudinary-cloud-name>
-CLOUDINARY_API_KEY=<optional-cloudinary-api-key>
-CLOUDINARY_API_SECRET=<optional-cloudinary-api-secret>
-ARCJET_KEY=<optional-arcjet-key>
-ARCJET_ENV=production
 ```
 
-Generate a strong JWT secret:
+Leave these blank unless you later split the frontend/backend onto different origins or add a custom domain:
 
 ```bash
-openssl rand -hex 64
+CLIENT_URL=
+CLIENT_URLS=
 ```
 
-### 2.2 Frontend environment variables
-
-For the production frontend build:
+Leave these blank unless you use the related feature:
 
 ```bash
-VITE_API_URL=https://api.<your-domain.com>/api
-VITE_SOCKET_URL=https://api.<your-domain.com>
+RESEND_API_KEY=
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+ARCJET_KEY=
+```
+
+The frontend needs **no `.env` file** for this no-domain EC2 deployment. In production it automatically calls:
+
+- API: `/api`
+- Socket.IO: the same browser origin
+
+That means the browser calls the same EC2 public DNS/IP that served the frontend, and Nginx forwards backend requests internally.
+
+---
+
+## 2. Create MongoDB Atlas cloud database first
+
+Do this before touching AWS so the backend never depends on local MongoDB.
+
+### 2.1 Create an Atlas account and project
+
+1. Go to <https://www.mongodb.com/products/platform/atlas-database>.
+2. Sign in or create an account.
+3. Create a new project, for example `chatify-production`.
+
+### 2.2 Create a free/shared cluster
+
+1. Click **Build a Database**.
+2. Choose the free/shared tier if available.
+3. Choose a cloud provider and region close to your AWS EC2 region.
+4. Name the cluster, for example `chatify-cluster`.
+5. Create the cluster and wait until it is ready.
+
+### 2.3 Create database user
+
+1. Open **Database Access**.
+2. Click **Add New Database User**.
+3. Choose **Password** authentication.
+4. Username example: `chatify_app`.
+5. Generate a strong password and save it.
+6. Grant **Read and write to any database** or a scoped read/write role for your Chatify database.
+
+### 2.4 Allow EC2 to connect
+
+For the fastest first deployment:
+
+1. Open **Network Access**.
+2. Click **Add IP Address**.
+3. Temporarily choose **Allow Access from Anywhere** (`0.0.0.0/0`).
+4. Save.
+
+After deployment works, you can tighten this by adding your EC2 Elastic IP only.
+
+### 2.5 Get the Atlas connection string
+
+1. Open **Database** → your cluster → **Connect**.
+2. Choose **Drivers**.
+3. Copy the connection string.
+4. Replace `<password>` with your database user's password.
+5. Replace or append the database name, for example `chatify`.
+
+Example shape:
+
+```bash
+mongodb+srv://chatify_app:<password>@chatify-cluster.xxxxx.mongodb.net/chatify?retryWrites=true&w=majority
+```
+
+This value becomes `MONGO_URI` on EC2.
+
+---
+
+## 3. Create an AWS EC2 server
+
+### 3.1 Launch instance
+
+1. Open the AWS Console.
+2. Go to **EC2** → **Instances** → **Launch instances**.
+3. Name: `chatify-server`.
+4. AMI: **Ubuntu Server 22.04 LTS** or **Ubuntu Server 24.04 LTS**.
+5. Instance type: `t2.micro` or `t3.micro` is enough for a small test deployment.
+6. Key pair: create or select an existing key pair, for example `chatify-key.pem`.
+7. Network settings/security group:
+   - Allow SSH `22` from **your IP only**.
+   - Allow HTTP `80` from `0.0.0.0/0`.
+   - Do **not** expose Node port `3000` publicly.
+8. Storage: 20 GB is fine for a small app.
+9. Launch instance.
+
+### 3.2 Allocate an Elastic IP
+
+This is optional but recommended so the public IP does not change after stop/start.
+
+1. Go to **EC2** → **Elastic IPs**.
+2. Allocate an Elastic IP.
+3. Associate it with `chatify-server`.
+
+Your app will be reachable at:
+
+```text
+http://<ec2-elastic-ip>
+```
+
+or the EC2 public DNS shown on the instance page:
+
+```text
+http://ec2-xx-xx-xx-xx.<region>.compute.amazonaws.com
 ```
 
 ---
 
-## 3. Create MongoDB Atlas Database
+## 4. Connect to EC2
 
-1. Sign in to MongoDB Atlas.
-2. Create a new project, for example `Chatify`.
-3. Create a free or production cluster.
-4. Create a database user:
-   - Username: `<chatify-user>`
-   - Password: a strong generated password
-5. Allow network access:
-   - For a simple first deployment, add `0.0.0.0/0`.
-   - For production hardening, restrict this to your EC2 public IP or VPC egress.
-6. Copy the connection string and set it as `MONGO_URI`.
-7. Use a database name like `chatify` in the URI.
-
----
-
-## 4. Deploy Backend on EC2
-
-### 4.1 Launch an EC2 instance
-
-1. Open AWS Console → EC2 → Launch instance.
-2. Name: `chatify-backend`.
-3. AMI: Ubuntu Server 24.04 LTS.
-4. Instance type: `t3.micro` for testing or larger for production.
-5. Create or select an SSH key pair.
-6. Security group inbound rules:
-   - SSH: TCP `22` from your IP only
-   - HTTP: TCP `80` from anywhere
-   - HTTPS: TCP `443` from anywhere
-7. Launch the instance.
-8. Allocate and associate an Elastic IP so the backend IP does not change.
-
-### 4.2 Connect to EC2
+On your computer:
 
 ```bash
-ssh -i <key-file.pem> ubuntu@<ec2-elastic-ip>
+chmod 400 <path-to-chatify-key.pem>
+ssh -i <path-to-chatify-key.pem> ubuntu@<ec2-public-ip>
 ```
 
-### 4.3 Install system packages
+Update Ubuntu:
 
 ```bash
 sudo apt update
 sudo apt upgrade -y
-sudo apt install -y git nginx curl unzip build-essential
 ```
 
-### 4.4 Install Node.js 20 LTS
+Install useful tools:
+
+```bash
+sudo apt install -y git curl unzip nginx build-essential
+```
+
+---
+
+## 5. Install Node.js and PM2
+
+Install Node.js 20 LTS:
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
@@ -124,37 +185,111 @@ node -v
 npm -v
 ```
 
-### 4.5 Install PM2
+Install PM2 globally:
 
 ```bash
 sudo npm install -g pm2
 pm2 -v
 ```
 
-### 4.6 Clone the repository
+---
+
+## 6. Upload or clone the code
+
+Choose one option.
+
+### Option A: clone from GitHub
 
 ```bash
-git clone https://github.com/<your-org-or-user>/<your-repo>.git /var/www/chatify
+sudo mkdir -p /var/www
+sudo chown ubuntu:ubuntu /var/www
+cd /var/www
+git clone <your-repo-url> chatify
+cd chatify
+```
+
+### Option B: upload from your machine
+
+From your local machine, run:
+
+```bash
+rsync -avz --exclude node_modules --exclude .git --exclude backend/.env -e "ssh -i <path-to-chatify-key.pem>" ./ ubuntu@<ec2-public-ip>:/var/www/chatify
+```
+
+Then on EC2:
+
+```bash
+cd /var/www/chatify
+```
+
+---
+
+## 7. Configure backend environment on EC2
+
+Create the backend `.env` file:
+
+```bash
+cd /var/www/chatify/backend
+nano .env
+```
+
+Paste this minimal production config:
+
+```bash
+MONGO_URI=mongodb+srv://<atlas-user>:<atlas-password>@<atlas-cluster>/<database>?retryWrites=true&w=majority
+JWT_SECRET=<long-random-secret>
+NODE_ENV=production
+PORT=3000
+```
+
+Generate a safe JWT secret on EC2 if needed:
+
+```bash
+openssl rand -base64 64
+```
+
+Protect the `.env` file:
+
+```bash
+chmod 600 /var/www/chatify/backend/.env
+```
+
+Important:
+
+- Do not use `mongodb://localhost:27017/...`.
+- Do not commit `.env` to git.
+- Keep `CLIENT_URL` and `CLIENT_URLS` unset for this same-origin EC2 deployment.
+
+---
+
+## 8. Install dependencies and build the frontend
+
+### 8.1 Backend dependencies
+
+```bash
 cd /var/www/chatify/backend
 npm ci --omit=dev
 ```
 
-### 4.7 Create backend `.env`
+### 8.2 Frontend dependencies and build
 
 ```bash
-sudo nano /var/www/chatify/backend/.env
+cd /var/www/chatify/frontend/react
+npm ci
+npm run build
 ```
 
-Paste the production backend values from section 2.1.
+Do not set `VITE_API_URL` or `VITE_SOCKET_URL` for this no-domain deployment. The production build will use same-origin URLs.
 
-Protect the file:
+The built files will be in:
 
-```bash
-sudo chown ubuntu:ubuntu /var/www/chatify/backend/.env
-chmod 600 /var/www/chatify/backend/.env
+```text
+/var/www/chatify/frontend/react/dist
 ```
 
-### 4.8 Start backend with PM2
+---
+
+## 9. Start the backend with PM2
 
 ```bash
 cd /var/www/chatify/backend
@@ -163,7 +298,7 @@ pm2 save
 pm2 startup systemd
 ```
 
-PM2 prints a command beginning with `sudo env PATH=...`; copy and run it.
+PM2 will print a command starting with `sudo env PATH=...`. Copy that command and run it exactly once.
 
 Check logs:
 
@@ -171,75 +306,85 @@ Check logs:
 pm2 logs chatify-backend
 ```
 
-### 4.9 Configure Nginx reverse proxy
+A healthy backend should show that it connected to MongoDB Atlas and is running on port `3000`.
 
-Create an Nginx site:
+---
+
+## 10. Configure Nginx for frontend + backend on one public URL
+
+Create an Nginx config:
 
 ```bash
-sudo nano /etc/nginx/sites-available/chatify-backend
+sudo nano /etc/nginx/sites-available/chatify
 ```
 
-Paste:
+Paste this config:
 
 ```nginx
 server {
-    listen 80;
-    server_name api.<your-domain.com>;
+    listen 80 default_server;
+    server_name _;
 
     client_max_body_size 8m;
 
-    location / {
-        proxy_pass http://127.0.0.1:3000;
+    root /var/www/chatify/frontend/react/dist;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000/api/;
         proxy_http_version 1.1;
 
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
-        # Socket.IO websocket support
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:3000/socket.io/;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+    }
+
+    location /health {
+        proxy_pass http://127.0.0.1:3000/health;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
     }
 }
 ```
 
-Enable it:
+Enable the site:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/chatify-backend /etc/nginx/sites-enabled/chatify-backend
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo ln -sf /etc/nginx/sites-available/chatify /etc/nginx/sites-enabled/chatify
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-### 4.10 Point DNS to EC2
+---
 
-In Route 53 or your DNS provider:
+## 11. Test the deployment
 
-- Create an `A` record for `api.<your-domain.com>`.
-- Point it to the EC2 Elastic IP.
-
-Wait for DNS propagation.
-
-### 4.11 Add HTTPS with Certbot
+From your laptop or EC2:
 
 ```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d api.<your-domain.com>
-```
-
-Choose redirect HTTP to HTTPS when prompted.
-
-Test renewal:
-
-```bash
-sudo certbot renew --dry-run
-```
-
-### 4.12 Verify backend
-
-```bash
-curl https://api.<your-domain.com>/health
+curl http://<ec2-public-ip>/health
 ```
 
 Expected response:
@@ -248,144 +393,185 @@ Expected response:
 {"status":"ok","service":"chatify-api"}
 ```
 
----
+Open the app in a browser:
 
-## 5. Deploy Frontend on S3 + CloudFront
-
-### 5.1 Create an S3 bucket
-
-1. Open AWS Console → S3 → Create bucket.
-2. Bucket name: `chatify-frontend-<unique-suffix>`.
-3. Region: choose the same region you normally use.
-4. Keep **Block all public access** enabled.
-5. Create the bucket.
-
-### 5.2 Build the frontend locally or in CI
-
-From the repository root:
-
-```bash
-cd frontend/react
-npm ci
-VITE_API_URL=https://api.<your-domain.com>/api VITE_SOCKET_URL=https://api.<your-domain.com> npm run build
+```text
+http://<ec2-public-ip>
 ```
 
-The build output is `frontend/react/dist`.
+Smoke test:
 
-### 5.3 Upload build to S3
+1. Create account A.
+2. Open another browser/profile and create account B.
+3. Log in as both users.
+4. Send messages between the users.
+5. Refresh the browser and confirm you are still authenticated.
+6. Open DevTools → Network and confirm API requests go to `/api/...` on the same EC2 origin.
+7. Confirm Socket.IO connects to `/socket.io` on the same EC2 origin.
 
-```bash
-aws s3 sync frontend/react/dist s3://chatify-frontend-<unique-suffix> --delete
-```
+Bearer-token note:
 
-### 5.4 Create CloudFront distribution
-
-1. Open AWS Console → CloudFront → Create distribution.
-2. Origin domain: select your S3 bucket.
-3. Origin access: choose **Origin access control settings**.
-4. Create a new Origin Access Control (OAC).
-5. Viewer protocol policy: **Redirect HTTP to HTTPS**.
-6. Allowed HTTP methods: `GET, HEAD`.
-7. Default root object: `index.html`.
-8. Create distribution.
-9. After creation, CloudFront shows a banner/policy for S3 bucket access. Copy and apply that bucket policy to the S3 bucket permissions.
-
-### 5.5 Configure SPA fallback
-
-In the CloudFront distribution:
-
-1. Open Error pages.
-2. Create custom error response:
-   - HTTP error code: `403`
-   - Customize error response: Yes
-   - Response page path: `/index.html`
-   - HTTP response code: `200`
-3. Create another custom error response for `404` with the same settings.
-
-### 5.6 Attach custom domain and TLS certificate
-
-1. In AWS Certificate Manager, switch to **us-east-1**.
-2. Request a public certificate for `chat.<your-domain.com>`.
-3. Validate it with DNS.
-4. Edit the CloudFront distribution:
-   - Alternate domain name: `chat.<your-domain.com>`
-   - Custom SSL certificate: choose the ACM certificate
-5. Save changes.
-
-### 5.7 Point DNS to CloudFront
-
-In Route 53 or your DNS provider:
-
-- Create an `A`/Alias record for `chat.<your-domain.com>`.
-- Point it to the CloudFront distribution.
-
-### 5.8 Update backend CORS
-
-On EC2, update `/var/www/chatify/backend/.env`:
-
-```bash
-CLIENT_URL=https://chat.<your-domain.com>
-CLIENT_URLS=https://<cloudfront-domain-name>
-```
-
-Restart the backend:
-
-```bash
-pm2 restart chatify-backend --update-env
-```
+- Login/signup responses include a `token` value.
+- The frontend stores it in `localStorage` as `chatify_token`.
+- Axios attaches it as `Authorization: Bearer <token>`.
+- Socket.IO sends the token through `handshake.auth.token`.
+- This is why auth continues to work even on the first HTTP/no-domain deployment where secure cookies are not the primary mechanism.
 
 ---
 
-## 6. Smoke Test the Full App
+## 12. Updating the app later
 
-1. Open `https://chat.<your-domain.com>`.
-2. Create two accounts in two browsers or profiles.
-3. Confirm signup/login works.
-4. Confirm the browser receives a `jwt` cookie from `api.<your-domain.com>`.
-5. Confirm API requests include either:
-   - the secure HTTP-only cookie, and/or
-   - `Authorization: Bearer <token>` from the frontend token store.
-6. Start a chat and confirm messages appear in real time.
-7. Upload an image only after Cloudinary variables are configured.
-
----
-
-## 7. Updating a Deployment
-
-### Backend update
+On EC2:
 
 ```bash
-ssh -i <key-file.pem> ubuntu@<ec2-elastic-ip>
 cd /var/www/chatify
 git pull
+
 cd backend
 npm ci --omit=dev
 pm2 restart chatify-backend --update-env
-pm2 logs chatify-backend
+
+cd ../frontend/react
+npm ci
+npm run build
+
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
-### Frontend update
+Check logs:
 
 ```bash
-git pull
-cd frontend/react
-npm ci
-VITE_API_URL=https://api.<your-domain.com>/api VITE_SOCKET_URL=https://api.<your-domain.com> npm run build
-aws s3 sync dist s3://chatify-frontend-<unique-suffix> --delete
-aws cloudfront create-invalidation --distribution-id <distribution-id> --paths "/*"
+pm2 logs chatify-backend
 ```
 
 ---
 
-## 8. Production Hardening Checklist
+## 13. Optional: lock down MongoDB Atlas after EC2 works
 
-- Use a long random `JWT_SECRET` and rotate it if it was ever committed or shared.
-- Do not commit real `.env` files.
-- Restrict EC2 SSH access to your IP.
-- Enable CloudWatch logs/alarms for EC2 CPU, memory, disk, and Nginx errors.
-- Enable automated EC2 security updates.
-- Restrict MongoDB Atlas network access when possible.
-- Use verified Resend sender domains for production email.
-- Keep Cloudinary upload limits small enough to protect cost and performance.
-- Use AWS WAF with CloudFront if the app becomes public/high-traffic.
-- Configure regular database backups in MongoDB Atlas.
+If you associated an Elastic IP with EC2:
+
+1. Open MongoDB Atlas → **Network Access**.
+2. Add the EC2 Elastic IP as an allowed IP.
+3. Remove `0.0.0.0/0`.
+4. Restart the backend:
+
+```bash
+pm2 restart chatify-backend --update-env
+```
+
+---
+
+## 14. Optional: add a domain and HTTPS later
+
+When you buy a domain later:
+
+1. Point an `A` record such as `chat.yourdomain.com` to the EC2 Elastic IP.
+2. Install Certbot:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d chat.yourdomain.com
+```
+
+3. Edit `backend/.env` and set:
+
+```bash
+CLIENT_URL=https://chat.yourdomain.com
+```
+
+4. Restart backend:
+
+```bash
+pm2 restart chatify-backend --update-env
+```
+
+5. Rebuild frontend only if you decide to split API/frontend onto different origins. If still same-origin, no frontend env changes are needed.
+
+---
+
+## 15. Optional services
+
+### Cloudinary image uploads
+
+Set these in `backend/.env` only when you want image uploads:
+
+```bash
+CLOUDINARY_CLOUD_NAME=<cloud-name>
+CLOUDINARY_API_KEY=<api-key>
+CLOUDINARY_API_SECRET=<api-secret>
+```
+
+Restart:
+
+```bash
+pm2 restart chatify-backend --update-env
+```
+
+### Resend welcome emails
+
+Set these only when you want emails:
+
+```bash
+RESEND_API_KEY=<resend-key>
+EMAIL_FROM=<verified-sender-email>
+EMAIL_FROM_NAME=Chatify
+```
+
+### Arcjet protection
+
+Set this only when you want Arcjet enabled:
+
+```bash
+ARCJET_KEY=<arcjet-key>
+ARCJET_ENV=production
+```
+
+---
+
+## 16. Troubleshooting
+
+### Backend cannot connect to MongoDB Atlas
+
+Check:
+
+```bash
+pm2 logs chatify-backend
+```
+
+Common fixes:
+
+- Verify `MONGO_URI` uses `mongodb+srv://` from Atlas.
+- Verify the password is URL-encoded if it contains special characters.
+- Verify Atlas Network Access allows the EC2 public IP or temporarily `0.0.0.0/0`.
+- Verify EC2 outbound internet access is available.
+
+### App loads but API calls fail
+
+Run:
+
+```bash
+curl http://127.0.0.1:3000/health
+curl http://<ec2-public-ip>/health
+sudo nginx -t
+sudo tail -n 100 /var/log/nginx/error.log
+```
+
+If the first command works but the second fails, the issue is Nginx or the EC2 security group.
+
+### Login works but refresh logs you out
+
+Check browser DevTools → Application → Local Storage:
+
+- Confirm `chatify_token` exists after login.
+- Confirm requests include `Authorization: Bearer <token>`.
+
+### Socket does not connect
+
+Check browser DevTools → Network → WS and confirm it connects to:
+
+```text
+ws://<ec2-public-ip>/socket.io/...
+```
+
+Also confirm the Nginx `/socket.io/` location is present and PM2 logs do not show auth errors.

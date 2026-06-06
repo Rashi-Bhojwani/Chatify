@@ -1,16 +1,30 @@
-# React + Vite
+# Chatify Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This is the React/Vite frontend for Chatify.
 
-Currently, two official plugins are available:
+## Deployment defaults
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+For the no-domain AWS EC2 deployment, do **not** set frontend environment variables. The app is built to use same-origin routes in production:
 
-## React Compiler
+- API requests go to `/api`.
+- Socket.IO connects to the current browser origin.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Nginx on EC2 serves this build and proxies `/api` plus `/socket.io` to the backend. That keeps the first AWS deployment working with only an EC2 public IP or public DNS.
 
-## Expanding the ESLint configuration
+## Optional environment variables
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Only set these if you later host the frontend and backend on different origins:
+
+```bash
+VITE_API_URL=https://<backend-host>/api
+VITE_SOCKET_URL=https://<backend-host>
+```
+
+## Build
+
+```bash
+npm ci
+npm run build
+```
+
+The production output is written to `dist`.

@@ -4,7 +4,7 @@ import cors from "cors";
 import authRouters from "./routes/auth.route.js";
 import messageRouters from "./routes/message.route.js";
 import { connectDB } from "./lib/db.js";
-import { ENV, allowedOrigins, validateEnv } from "./lib/env.js";
+import { ENV, isOriginAllowed, validateEnv } from "./lib/env.js";
 import { app, server } from "./lib/socket.js";
 
 const PORT = ENV.PORT;
@@ -16,7 +16,7 @@ app.use(cookieParser());
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      if (isOriginAllowed(origin)) return callback(null, true);
       return callback(new Error(`Origin ${origin} is not allowed by CORS`));
     },
     credentials: true,
